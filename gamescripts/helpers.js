@@ -1,21 +1,45 @@
-//-------------------------------------------------------------------------------------------------------------------------------//
-//------------------------------------------- Helper Functions ------------------------------------------------------------------//
+//
+//  This file just has a bunch of helper
+//  functions. Most of it will probably
+//  be categorized and moved later.
+//
 
+// Json reading function
+function readJSON(json_url){
+    var result = $.parseJSON($.ajax({
+        url: json_url,
+        async: false, // <--- Google is frowning at you for this. remember that.
+        dataType: 'json'
+    }).responseText);
+    return result;
+}
 
-//---------------------------------------------------------------------------------------------------//
-//----------------------------------------- Game general helpers ------------------------------------//
 // Nice reboot function
 function restartGame(){
     window.location.reload();
 };
 
+// Function to update the user interface.
 function updateUI(){
+    // Update the accuracy.
     var accuracy = Math.round((killcount/bulletCount)*100);
+    // Handle the accuracy coming back as "undefined" or "infinity"
     if(!accuracy){
         accuracy = 0;
+    } else if(accuracy > 100){
+        accuracy = 100;
     }
+
+    // Update persistant variables
+    ACCURACY = accuracy;
+    KILL_COUNT = killcount;
+    BULLET_COUNT = bulletCount;
+
+    // Update the actual hud
+
     // Update the health
-    $("#health").html("Health: "+$("#player")[0].player.health);
+    var health_width = (PLAYGROUND_WIDTH / PLAYER_HEALTH) * $("#player")[0].player.health;
+    $("#health").css({"width": health_width});
     // Update the stats
     $("#stats").html("<div class='text-center'>Kills: "+killcount+" Shots Fired: "+bulletCount+" Accuracy: "+accuracy+"%</div>");
     // Update lives
@@ -23,180 +47,220 @@ function updateUI(){
 
 }
 
-//---------------------------------------------------------------------------------------------------//
-//----------------------------------------- Player helpers ------------------------------------------//
-// Kill the player
-function killPlayer(playerNode){
-    playerNode.children().hide();
+// Flash the screen if the player dies
+function flashScreen(){
+    $("#playground").append("<div id='flash'></div>");
+    $("#flash").height(PLAYGROUND_HEIGHT);
+    $("#flash").width(PLAYGROUND_WIDTH);
+    $("#flash").fadeIn(FLASH_SPEED).fadeOut(FLASH_SPEED);
+    $("#playground").remove("#flash");
+}
 
-    // Add a "dead" animation
-    playerNode.addSprite("dead", {animation: playerAnimation["dead"], width: 20, height: 20 });
-    playerHit = true;
-};
+function flashEntity(entity){
+    setTimeout(function(){
+        $(entity).css({ 'box-shadow': '0 0 15px rgba(0,28,0, 0.3)', 'border-radius': '2em' });
+    }, 20);
+    $(entity).css({ 'box-shadow': '0 0 0px #fff' });
+}
 
-function updateCrosshair(e){
-    // To figure out the mouse position,
-    // we need somewhere to store it,
-    // and the offset of the containing <div>
-    var mousePosition = [];
-    var playerPosition = [$('#player').x() + (PLAYER_WIDTH/2), $('#player').y() + (PLAYER_HEIGHT/2)];
-    var offset = $("#playground").offset();
+function stressPulse(){
+    $("#playground").append("<div id='burn'><div id='overlay'></div></div>");
+    $('#burn').fadeIn(100).fadeOut(1000);
+    $("#burn").remove()
+}
 
-    // Get the current mouse position with respect to
-    // the playground <div>. If the mouse position
-    // wasn't given in this event, load it from
-    // a previous value.
-    if(!e.pageX && !e.pageY){
-        mousePosition = MOUSE_POSITION;
+// Show this screen if the game is over.
+function endGameScreen(){
+    $("#actors,#playerBulletLayer,#overlay,#obstacles").fadeOut(1000);
+    $("#background").fadeOut(3000);
+    gameOver = true;
+    var template = "";
+    $.ajax({
+        url: "gamescripts/templates/endgame.html",
+        type: 'get',
+        async: true,
+        success: function(html){
+            $("#playground").append(html);
+        }
+    }).done(function(){
+        $("#accuracy").text(ACCURACY+"%");
+        $("#bulletCount").text(BULLET_COUNT);
+        $("#killCount").text(KILL_COUNT);
+        $("#elapsedTime").text($("#timer").text());
+        // Center the start button
+        var pushX = ($('#playground').width()/2) - ($('#restartbutton').width()/2);
+
+        $('#restartbutton').css('left', pushX + 'px');
+        $("#restartbutton").click(function(){
+            restartGame();
+        });
+
+    });
+}
+
+// Show this screen on pause
+function pausedScreen(){
+    if(PAUSED == true){
+        resume();
     } else {
-        mousePosition = [
-            e.pageX - offset.left,
-            e.pageY - offset.top
-        ];
-    }
+        $.playground().pauseGame(function(){});
+        $.ajax({
+            url: "gamescripts/templates/pause.html",
+            type: 'get',
+            async: true,
+            success: function(html){
+                $('#playground').append(html);
+            }
+        }).done(function(){
+            $("#paused-screen").height(PLAYGROUND_HEIGHT);
+            $("#paused-screen").width(PLAYGROUND_WIDTH);
 
-    // Now get the magnitude and direction.
-    var distance = getDistance(mousePosition, playerPosition);
-    var rad = getRadians(mousePosition, playerPosition);
+            // Update the stats.
+            $("#accuracy").text(ACCURACY+"%");
+            $("#bulletCount").text(BULLET_COUNT);
+            $("#killCount").text(KILL_COUNT);
+            $("#elapsedTime").text($("#timer").text());
 
-    // Update the semi-persistent data
-    PLAYER_POSITION = playerPosition;
-    MOUSE_POSITION = mousePosition;
-    CROSSHAIR_DIRECTION = rad;
+            var pushX = ($('#playground').width()/2) - ($("#paused-img").width()/2);
+            $('#paused-img').css('left', pushX + 'px');
 
-    // calculate the new coordinates
-    var newX;
-    var newY;
-    if(distance <= MAX_CROSSHAIR_DISTANCE){
-        newX = mousePosition[0];
-        newY = mousePosition[1];
-    } else {
-        newX = Math.round(Math.cos(rad) * MAX_CROSSHAIR_DISTANCE + playerPosition[0]);
-        newY = Math.round(Math.sin(rad) * MAX_CROSSHAIR_DISTANCE + playerPosition[1]);
-    }
 
-    // Adjust the crosshair
-    try{
-        $("#crosshair").x(newX - CROSSHAIR_WIDTH/2);
-        $("#crosshair").y(newY - CROSSHAIR_HEIGHT/2);
-    } catch(TypeError){
+            // Center the resume button
+            var pushX = ($('#playground').width()/2) - 5 - ($('#resumebutton').width()/2) - ($('#restartbutton').width());
+            $('#resumebutton').css('left', pushX + 'px');
+            $("#resumebutton").click(function(){
+                resume();
+            });
+
+            // Center the fucking restart button
+            $('#restartbutton').css('left', pushX + $('#resumebutton').width() + 10 + $('#restartbutton').width()/2 + 'px');
+            $("#restartbutton").click(function(){
+                restartGame();
+            });
+
+            // Fade in
+            $("#paused-screen").fadeIn(100);
+            PAUSED = true;
+        });
     }
 }
 
+function resume(){
+    $.playground().resumeGame(function(){});
+    $("#paused-screen").fadeOut(100);
+    $("#paused-screen").remove();
+    $("#playground").remove("#paused-screen");
+    PAUSED = false;
+}
+
+// take 2 [x,y] coordinates and returns
+// then angle between them in radians.
 function getRadians(point1, point2){
     var dx = point1[0] - point2[0];
     var dy = point1[1] - point2[1];
     return Math.atan2(dy, dx);
 }
 
+// Takes 2 [x,y] coordinates and returns
+// the distance between them.
 function getDistance(point1, point2){
     var dx = point1[0] - point2[0];
     var dy = point1[1] - point2[1];
     return Math.floor(Math.sqrt(Math.pow(dx, 2)+Math.pow(dy, 2)));
 }
 
-function fire(e){
-    e.preventDefault();
-    if(!gameOver){
-        updateCrosshair(e);
-        var playerposx = $("#player").x();
-        var playerposy = $("#player").y();
-        bulletCount = (bulletCount + 1) % 100000;
-        var name = "playerBullet_" + bulletCount;
-        $("#playerBulletLayer").addSprite(name, {
-            animation: bullet["player"],
-            posx: playerposx + (PLAYER_WIDTH/2 - 2),
-            posy: playerposy + (PLAYER_HEIGHT/2 - 2),
-            width: 5,
-            height: 5
-        });
-        $("#"+name).addClass("playerBullet");
-        $("#"+name)[0].bullet = new Bullet($("#"+name));
-        $("#"+name)[0].bullet.direction = CROSSHAIR_DIRECTION;
-    }
-
+// LINE EQUATION STUFF
+function getM(point1, point2){
+    return (point2[1]-point1[1])/(point2[0]-point1[0]);
 }
 
-function updatePlayerMovement(){
-    // Update the player's movement
-    if(!playerHit){
-        var speed = $("#player")[0].player.speed;
-        $("#player")[0].player.update();
+function getB(point, slope){
+    return point[1] - (slope * point[0]);
+}
 
-        // a - left
-        if(jQuery.gameQuery.keyTracker[65]){
-            var current = $("#player").x();
-            var next = current - speed;
-            if(next > 0){
-                $("#player").x(next);
-            }
-        }
-
-        // d - right
-        if(jQuery.gameQuery.keyTracker[68]){
-            var current = $("#player").x();
-            var next = current + speed;
-            if(next < $("#playground").width() - PLAYER_WIDTH){
-                $("#player").x(next);
-            }
-        }
-
-        // w - up
-        if(jQuery.gameQuery.keyTracker[87]){
-            var current = $("#player").y();
-            var next = current - speed;
-            if(next > 0){
-                $("#player").y(next);
-            }
-        }
-
-        // s - down
-        if(jQuery.gameQuery.keyTracker[83]){
-            var current = $("#player").y();
-            var next = current + speed;
-            if(next < $("#playground").height() - PLAYER_HEIGHT){
-                $("#player").y(next);
-            }
-        }
+function linesIntersectAt(m1, b1, m2, b2){
+    if(m1 == m2){
+        return false;
     } else {
-        if($("#player")[0].player.respawn()){
-            gameOver = true;
-            $("#playground").append("<div class='text-center'><h2>GAME OVER</h2></div><div class='text-center'><a href='#' id='restartbutton'>Try Again?</a></div>");
-            $("#restartbutton").click(function(){
-                restartGame();
-            });
-            $("#actors,#playerBulletLayer,#overlay").fadeTo(1000,0);
-            $("#background").fadeTo(3000, 0);
-        } else {
-            playerHit = false;
-        }
-    }
-}
-//---------------------------------------------------------------------------------------------------//
-//-------------------------------------- Enemy Helpers ----------------------------------------------//
-function updateEnemyMovement(){
-    $(".enemy").each(function(){
-        this.enemy.update($("#player"));
-        var posx = $(this).x();
-        var posy = $(this).y();
-        var collided = $(this).collision("#playerBody,."+$.gQ.groupCssClass);
-        if(collided.length > 0){
-            if($("#player")[0].player.damage()){
-                killPlayer($("#player"));
-                $("#crosshair").remove();
-                killcount = 0;
-            }
-        }
-    });
-}
-
-function leftSpawn(){
-    if(!gameOver && !bossWave){
-        var posy = Math.random()*PLAYGROUND_HEIGHT;
-        var name = "enemy1_"+Math.ceil(Math.random()*1000);
-        $("#actors").addSprite(name, {animation: enemies[0]["idle"], posx: 0, posy: posy, width: PLAYER_WIDTH, height: PLAYER_HEIGHT});
-        $("#"+name).addClass("enemy");
-        $("#"+name)[0].enemy = new Enemy($("#"+name));
+        var X = (b2 - b1)/(m1 - m2);
+        var Y = (m2*X) + b2;
+        return [X,Y];
     }
 }
 
+// FUNCTION ASSUMES POINT IS ON LINE.
+// CHECK FOR INTERSECTION FIRST.
+function isPointInSegment(point, start, end){
+    var x = (Math.min(start[0], end[0]) <= point[0]) && (point[0] <= Math.max(start[0], end[0]));
+    var y = (Math.min(start[1], end[1]) <= point[1]) && (point[1] <= Math.max(start[1], end[1]));
+    return (x && y);
+}
+
+// Take a rectangle and return the diagonal
+// lines made that connect opposing points
+// through the center of the rectangle.
+function getDiagonalsFromElement(element){
+    // more variables but easier to code IMO.
+    var p1 = [element.posx, element.posy];
+    var p2 = [(element.posx + element.width), element.posy];
+    var p3 = [element.posx, (element.posy + element.height)];
+    var p4 = [(element.posx + element.width), (element.posy + element.height)];
+    var diag1 = [p1, p4];
+    var diag2 = [p2, p3];
+    return [diag1, diag2];
+}
+
+function getOutlineOfElement(element){
+    var p1 = [element.posx, element.posy];
+    var p2 = [(element.posx + element.width), element.posy];
+    var p3 = [element.posx, (element.posy + element.height)];
+    var p4 = [(element.posx + element.width), (element.posy + element.height)];
+    var l1 = [p1, p2];
+    var l2 = [p1, p3];
+    var l3 = [p4, p3];
+    var l4 = [p4, p2];
+    return [l1, l2, l3, l4];
+}
+
+// lets you know if a coordinate is out of bounds
+function isOutOfBounds(x,y){
+    if(x < 0){
+        return true;
+    } else if(x > PLAYGROUND_WIDTH){
+        return true;
+    } else if(y < 0){
+        return true;
+    } else if(y > PLAYGROUND_HEIGHT){
+        return true;
+    } else {
+        return false;
+    }
+}
+
+function causedCollision(playerNode){
+    var collided = playerNode.node.collision(".obstacleBody,."+$.gQ.groupCssClass);
+    var collided_with_another_enemy = playerNode.node.collision(".enemy,."+$.gQ.groupCssClass);
+    if(collided.length > 0 || collided_with_another_enemy.length > 0){
+        return true;
+    }
+    return false;
+}
+
+function countBulletsForLog(){
+    console.log(CURRENT_BULLET)
+    console.log(BULLETS[CURRENT_BULLET][0].bullet.fired);
+}
+
+function timerIncrement(){
+    timer_seconds++;
+    if(timer_seconds >= 60){
+        timer_seconds = 0;
+        timer_minutes++;
+        if(timer_minutes >= 60){
+            timer_minutes = 0;
+            timer_hours++;
+        }
+    }
+    var result = (timer_hours ? (timer_hours > 9 ? timer_hours : "0" + timer_hours) : "00") + ":" + (timer_minutes ? (timer_minutes > 9 ? timer_minutes : "0" + timer_minutes) : "00") + ":" + (timer_seconds > 9 ? timer_seconds : "0" + timer_seconds);
+    $("#timer").html(result);
+}
